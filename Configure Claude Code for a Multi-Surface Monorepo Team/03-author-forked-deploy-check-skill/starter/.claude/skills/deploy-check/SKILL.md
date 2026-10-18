@@ -15,6 +15,19 @@
 # `context` or `allowed-tools` in its skill-frontmatter completions. That's the LSP
 # lagging the product spec, not a problem with your file — see Troubleshooting in
 # the exercise instructions.
+name: deploy-check
+description: Run the team's read-only pre-deployment validation checklist against the working tree
+context: fork
+argument-hint: "<target-branch | current>"
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash(git status:*)
+  - Bash(git diff:*)
+  - Bash(git log:*)
+  - Bash(gh pr view:*)
+  - Bash(gh pr checks:*)
 ---
 
 # /deploy-check
@@ -43,6 +56,17 @@ TODO: Write a 2-3 line decision rubric explaining why /deploy-check is a SKILL
       always-loaded / universal → CLAUDE.md.
 -->
 
+Use a **skill** for work that is on-demand, forked, and task-specific: `/deploy-check`
+is only needed in the minutes before a deploy, and it produces verbose intermediate
+output (file enumeration, diff parsing, check traces) that has zero value once the
+pass/fail summary is known. Use **CLAUDE.md** for always-loaded, universal
+conventions that must be present in every session — "tests are co-located", "throw
+`ApiError` for validation failures".
+
+Rule of thumb: on-demand / forked / task-specific → skill; always-loaded /
+universal → CLAUDE.md. Dumping deploy logic into CLAUDE.md would bloat every session
+with content relevant only at deploy time.
+
 ## Why `context: fork`
 
 <!--
@@ -60,6 +84,21 @@ TODO: Write the rationale paragraph for `context: fork`. It MUST do two things:
       `fork_session`). Mention both so a reader who knows the Playbook can map the
       mental model.
 -->
+
+The goal of `context: fork` is to keep the verbose intermediate output of the deploy
+check **out of the main session**. A deploy check walks the working tree, inspects
+diffs, and runs several enumeration passes — none of that has any value to the
+calling conversation once we know whether to ship. Running it in a fork means only
+the structured summary returns to the main session; the file lists, diff hunks, and
+check traces stay isolated in the fork and never consume the main context window.
+
+`context: fork` is a Claude Code **product feature** that operates at the
+skill-invocation layer: the harness spins up a separate sub-agent context for the
+skill and returns only its final summary. It is conceptually analogous to the
+Architect's Playbook *Branching Reality* pattern, which describes session-level
+forking via `fork_session` to explore a path without polluting the primary line of
+work. Same mental model, different layer: the Playbook forks whole sessions;
+`context: fork` forks a single skill invocation.
 
 ## Checks
 
@@ -83,6 +122,24 @@ shape needs different ones):
   3. CI checks green on the open PR — `gh pr view --json statusCheckRollup`
      reports all required checks as SUCCESS.
 -->
+
+### Check 1 — Uncommitted changes
+
+- Detect: run `git status --porcelain` and count the output lines.
+- Pass: the command returns empty output — the working tree is clean, so what you're shipping is exactly what's committed.
+- Fail: any line is returned. Surface the count and the first few paths in the verdict detail (e.g. "3 uncommitted files: src/api/orders/refund.ts, ...") so the author can commit or stash before deploying.
+
+### Check 2 — Migrations up-to-date with code
+
+- Detect: diff the branch against the target (`git diff <target>...HEAD -- src/db/`) and list every new repository import or schema-touching function; then list the migration files added in the same branch under the migrations directory.
+- Pass: every new repository read/write introduced in the diff is backed by a migration file added in this branch — no code references a column or table that has no migration.
+- Fail: a new repository function references a table/column with no matching migration in the branch. Surface the offending module and the missing migration so the author adds a forward migration before deploying.
+
+### Check 3 — CI green on the open PR
+
+- Detect: run `gh pr view --json statusCheckRollup` for the current branch's PR and read each check's `status`/`conclusion`.
+- Pass: every required check reports SUCCESS (or the rollup is empty because there are no required checks).
+- Fail: any required check is FAILURE, PENDING, or ERROR. Surface the failing check names and their state in the verdict detail so the author knows what to fix or wait on before shipping.
 
 ## Output format
 
@@ -109,6 +166,14 @@ TODO: Add a short note explaining that this skill is project-scoped
       `~/.claude/skills/deploy-check-strict/` with a different name. Their
       variant will not be committed to the repo and will not affect teammates.
 -->
+
+This skill is **project-scoped** (`.claude/skills/deploy-check/`), so every teammate
+gets the identical set of checks through version control. If you want a stricter
+personal variant — say, one that additionally fails when the diff exceeds 500 lines
+without a proportionally long PR description — create a parallel skill at
+`~/.claude/skills/deploy-check-strict/` with a different `name`. Your variant lives
+in your home directory, is not committed to the repo, and does not affect anyone
+else's `/deploy-check`.
 
 ## What this skill deliberately does not do
 

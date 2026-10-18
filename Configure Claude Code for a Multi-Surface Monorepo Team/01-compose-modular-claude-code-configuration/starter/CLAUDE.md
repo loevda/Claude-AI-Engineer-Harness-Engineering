@@ -12,7 +12,15 @@ TODO: Add a side-by-side table distinguishing project-level (`./CLAUDE.md`, `.cl
       user-level (e.g. preferred commit message style).
 -->
 
+| Scope | Where it lives | Shared with the team? | Typical content |
+|-------|----------------|-----------------------|-----------------|
+| **Project-level** | `./CLAUDE.md`, `.claude/standards/`, `.claude/rules/` | Yes — committed to git | Repo-wide conventions: shared standards, path-scoped rules, team commands & skills. |
+| **User-level** | `~/.claude/CLAUDE.md`, `~/.claude/commands/`, `~/.claude/skills/` | **No — not shared via version control** | Personal preferences: your preferred commit-message style, editor snippets, personal aliases. |
+| **Directory-level** | a `CLAUDE.md` inside a subdirectory | Yes — committed to git | Narrower conventions for one subtree; we prefer `.claude/rules/` globs for cross-cutting cases. |
+
 <!-- TODO: Add a short paragraph tying the table back to the team's intent. -->
+
+Anything the whole team must agree on belongs in the project-level files above, where it is version-controlled and reviewable in every PR. Anything that is purely yours — your preferred commit-message style, a personal `/standup` command, a favorite prompt template — belongs under `~/.claude/`, which stays on your machine and is **not shared** with teammates through git.
 
 ## Shared standards (modular via @-imports)
 
@@ -32,6 +40,11 @@ into the session.
 Four standards files already exist for you under `.claude/standards/`:
 frontend.md, api.md, database.md, testing.md. Add one `@`-import line for each.
 -->
+
+@.claude/standards/frontend.md
+@.claude/standards/api.md
+@.claude/standards/database.md
+@.claude/standards/testing.md
 
 Path-scoped rules in [.claude/rules/](.claude/rules/) layer on top of these standards and activate only when Claude is editing matching files (React components, API handlers, test files).
 
@@ -55,6 +68,8 @@ TODO: Add a one-liner telling teammates that if a CLAUDE.md instruction isn't be
 
       (Hint: the command starts with `/m` and is named after Claude's memory.)
 -->
+
+If a `CLAUDE.md` instruction isn't being followed, run `/memory` in the Claude session — it lists exactly which configuration files actually loaded for the current session, so you can confirm whether the file (and its `@`-imports) were picked up at all.
 
 ## Team workflows
 

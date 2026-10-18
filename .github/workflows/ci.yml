@@ -12,11 +12,13 @@ on:
     paths:
       - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
       - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
+      - "Configure Claude Code for a Multi-Surface Monorepo Team/**"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
       - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
+      - "Configure Claude Code for a Multi-Surface Monorepo Team/**"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
 
@@ -67,6 +69,28 @@ jobs:
           - name: multishift-04-fork-scratchpad
             dir: "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/04-fork-scratchpad/starter"
             pytest_args: "tests/"
+          # --- Project 4: Multi-Surface Monorepo Team (cumulative) ---
+          - name: monorepo-01-compose-modular-config
+            dir: "Configure Claude Code for a Multi-Surface Monorepo Team/01-compose-modular-claude-code-configuration/starter"
+            pytest_args: >-
+              tests/test_us01_claude_md_hierarchy.py
+              tests/test_us02_path_scoped_rules.py
+          - name: monorepo-02-review-command
+            dir: "Configure Claude Code for a Multi-Surface Monorepo Team/02-author-project-scoped-review-command/starter"
+            pytest_args: >-
+              tests/test_us01_claude_md_hierarchy.py
+              tests/test_us02_path_scoped_rules.py
+              tests/test_us03_review_command.py
+          - name: monorepo-03-deploy-check-skill
+            dir: "Configure Claude Code for a Multi-Surface Monorepo Team/03-author-forked-deploy-check-skill/starter"
+            pytest_args: >-
+              tests/test_us01_claude_md_hierarchy.py
+              tests/test_us02_path_scoped_rules.py
+              tests/test_us03_review_command.py
+              tests/test_us04_deploy_check_skill.py
+          - name: monorepo-04-plan-mode-decision-doc
+            dir: "Configure Claude Code for a Multi-Surface Monorepo Team/04-plan-mode-and-explore-decision-doc/starter"
+            pytest_args: "tests/"
 
     steps:
       - name: Check out repository
@@ -80,6 +104,7 @@ jobs:
           cache-dependency-path: |
             Build a Claims Intake Agent with a stop_reason-Driven Loop/**/pyproject.toml
             Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**/pyproject.toml
+            Configure Claude Code for a Multi-Surface Monorepo Team/**/pyproject.toml
 
       - name: Install package and dev dependencies
         working-directory: ${{ matrix.dir }}
