@@ -1,0 +1,92 @@
+name: CI
+
+# Continuous integration for the starter code of the first two course projects.
+# Each numbered exercise step is an independent installable package, so every
+# starter runs in its own fresh job. This avoids the shared-package-name
+# collisions (claims_intake x3, shift-monitor x4) and lets each step report as a
+# distinct, individually-required status check for GitHub Copilot's coding agent.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
+      - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
+      - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Report every step independently; do not cancel siblings on first failure.
+      fail-fast: false
+      matrix:
+        include:
+          # --- Project 1: Claims Intake Agent (cumulative) ---
+          - name: claims-01-loop
+            dir: "Build a Claims Intake Agent with a stop_reason-Driven Loop/exercises/01-loop/starter"
+            pytest_args: "tests/test_loop.py"
+          - name: claims-02-tools-and-audit
+            dir: "Build a Claims Intake Agent with a stop_reason-Driven Loop/exercises/02-tools-and-audit/starter"
+            pytest_args: >-
+              tests/test_antipatterns.py
+              tests/test_tools.py::test_lookup_policy_returns_record
+              tests/test_tools.py::test_lookup_policy_unknown_id_returns_graceful_error
+              tests/test_tools.py::test_unknown_tool_returns_graceful_error
+              tests/test_tools.py::test_handler_exception_is_caught_as_transient_error
+          - name: claims-03-dynamic-decomposition
+            dir: "Build a Claims Intake Agent with a stop_reason-Driven Loop/exercises/03-dynamic-decomposition/starter"
+            pytest_args: "tests/"
+          # --- Project 2: Multi-Shift Quality Monitoring (self-contained per step) ---
+          - name: multishift-01-tiered-state
+            dir: "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/01-tiered-state/starter"
+            pytest_args: "tests/test_us01_tiered_state.py"
+          - name: multishift-02-invocation-pipeline
+            dir: "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/02-invocation-pipeline/starter"
+            pytest_args: >-
+              tests/test_us01_tiered_state.py
+              tests/test_us02_invocation_pipeline.py
+          - name: multishift-03-crash-recovery
+            dir: "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/03-crash-recovery/starter"
+            pytest_args: >-
+              tests/test_us01_tiered_state.py
+              tests/test_us02_invocation_pipeline.py
+              tests/test_us03_crash_recovery.py
+          - name: multishift-04-fork-scratchpad
+            dir: "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/04-fork-scratchpad/starter"
+            pytest_args: "tests/"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            Build a Claims Intake Agent with a stop_reason-Driven Loop/**/pyproject.toml
+            Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**/pyproject.toml
+
+      - name: Install package and dev dependencies
+        working-directory: ${{ matrix.dir }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run scoped tests
+        working-directory: ${{ matrix.dir }}
+        run: python -m pytest ${{ matrix.pytest_args }} -v
