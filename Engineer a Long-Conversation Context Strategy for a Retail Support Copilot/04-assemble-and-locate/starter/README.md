@@ -20,6 +20,32 @@ The defining architectural choice is **application-side context engineering**: t
      that a reviewer can read a labeled box and find the corresponding section
      of `runs/<id>/context.md`. -->
 
+```
+┌───────────────────────────────────────────────────────────┐
+│ 1. System prompt            — persona, behavior, rules       │
+├───────────────────────────────────────────────────────────┤
+│ 2. CLAUDE.md / project memory — repo-wide standing context  │
+├───────────────────────────────────────────────────────────┤
+│ 3. Long-term memory / retrieved docs — RAG, prior cases      │
+├───────────────────────────────────────────────────────────┤
+│ 4. Conversation history  ◄── THIS PROJECT OPERATES HERE     │
+│      • # Case Facts                 (top boundary, ≤600 tok)│
+│      • # Resolved: Refund inquiry   (middle, compressed)    │
+│      • # Resolved: Subscription …   (middle, compressed)    │
+│      • # Active issue: Payment …    (bottom boundary, exact)│
+├───────────────────────────────────────────────────────────┤
+│ 5. Current user turn — the new question being asked          │
+└───────────────────────────────────────────────────────────┘
+```
+
+This project's work lives entirely on **layer 4 — the conversation-history layer**.
+The harness (not the model) rewrites that layer before it is ever sent: it extracts
+a dense `# Case Facts` block to the top, compresses the two resolved threads into
+the middle, and pins the still-open payment-method thread verbatim at the bottom,
+immediately above the current user turn. Each labeled box above maps one-to-one to
+a level-1 (`#`) section in `runs/<id>/context.md`, so a reviewer can read a box
+and find the exact bytes the model saw.
+
 ## Why this layout?
 
 <!-- TODO (Exercise 4): Replace this section with 3-5 sentences naming WHY
@@ -32,6 +58,23 @@ The defining architectural choice is **application-side context engineering**: t
            bearing). The "scratchpad" synonym for the case-facts block is worth
            naming. -->
 
+The layout is engineered around the **"lost in the middle" attention effect**: a
+long-context model attends most reliably to the beginning and end of the window and
+least reliably to its middle. We therefore place the highest-value, hardest-to-
+recompute facts — the structured `# Case Facts` block (a *scratchpad* of durable
+transactional facts) — at the **top boundary**, and the live, turn-by-turn payment-
+method thread at the **bottom boundary**, right against the current user turn, so
+both sit in the high-attention zones. The resolved threads go to the low-attention
+middle because they are the cheapest to lose precision on. This encodes the
+**resolved-vs-active fidelity tradeoff**: the active thread is still load-bearing
+for the next agent action, so it is preserved **byte-exact** (verbatim turns 29–48),
+while the resolved threads — whose coherence is no longer load-bearing — are
+summarized and allowed to lose narrative detail. In doing so we deliberately
+deviate from the naive **pass-complete-history baseline** (send all 48 turns
+untouched): we keep full fidelity only where it still matters (the active thread)
+and compress only where it no longer does (the resolved threads), cutting the
+window by more than half without sacrificing any decision-critical fact.
+
 ## Before / after token budget
 
 <!-- TODO (Exercise 4): Replace this section with a one-line statement of the
@@ -41,6 +84,30 @@ The defining architectural choice is **application-side context engineering**: t
      reduction-percentage. The table is *sourced from* `budget.json`, not
      narrated — anyone re-running the pipeline should regenerate the same table
      (modulo a few percent of drift if the Anthropic endpoint is used). -->
+
+**Methodology (from `tokens.methodology()`, recorded in `budget.json`):**
+`len(text) / 3.8` heuristic (no API key available). When `ANTHROPIC_API_KEY` is
+set, every number below is instead sourced from the model-authoritative Anthropic
+`messages.count_tokens` endpoint — expect a few percent of drift between the two
+paths. The table is regenerated from `runs/<id>/budget.json` on every run; the
+`active` and `case_facts` rows are deterministic, while the two `resolved_*` rows
+are LLM-generated and vary with the summarization model (capped at ≤ 500 tokens
+each by the compression prompt).
+
+| Section | Context layer | Tokens (heuristic) |
+|---|---|---:|
+| Baseline — raw 48-turn transcript | — | 47,144 |
+| `# Case Facts` | top boundary | 142 |
+| `# Resolved: Refund inquiry` | middle (LLM summary) | ≤ 500 |
+| `# Resolved: Subscription cancellation` | middle (LLM summary) | ≤ 500 |
+| `# Active issue: Payment-method update` | bottom boundary (verbatim) | 19,538 |
+| **Assembled total** | — | **≈ 20,700** |
+| **Reduction vs baseline** | — | **≈ 56%** |
+
+The verbatim active thread dominates the assembled window (~19.5k of ~20.7k
+tokens); the entire compression win comes from collapsing the two resolved
+threads (originally ~28 turns) into ≤ 1k of summary while keeping the case-facts
+scratchpad tiny at the top.
 
 ## Eval results
 

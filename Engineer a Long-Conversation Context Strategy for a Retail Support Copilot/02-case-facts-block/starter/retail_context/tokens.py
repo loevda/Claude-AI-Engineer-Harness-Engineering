@@ -34,7 +34,9 @@ def methodology() -> str:
     #     f"len(text) / {_CHARS_PER_TOKEN} heuristic (no API key available)"
     # The returned string is written verbatim into budget.json so reviewers can
     # interpret the per-section numbers without re-deriving the algorithm.
-    return f"len(text) / {_CHARS_PER_TOKEN} heuristic (stub — Exercise 3 adds the SDK dispatch)"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "Anthropic messages.count_tokens endpoint (model-authoritative)"
+    return f"len(text) / {_CHARS_PER_TOKEN} heuristic (no API key available)"
 
 
 @lru_cache(maxsize=4096)
@@ -50,6 +52,12 @@ def count(text: str) -> int:
     #     return int(resp.input_tokens)
     # When the key is not set, fall back to the heuristic below. The cap of 1
     # is intentional — a non-empty string never reports 0 tokens.
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        resp = get_client().messages.count_tokens(
+            model=get_model(),
+            messages=[{"role": "user", "content": text}],
+        )
+        return int(resp.input_tokens)
     return max(1, int(len(text) / _CHARS_PER_TOKEN))
 
 

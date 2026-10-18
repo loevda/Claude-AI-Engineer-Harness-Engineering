@@ -55,7 +55,26 @@ def summarize_segment(segment: Segment, *, model: str | None = None) -> Summary:
     #
     # 5. Return a Summary carrying the issue_id, the response text (the
     #    structured summary), and the token counts.
-    raise NotImplementedError("Exercise 3: implement segment summarization")
+    if segment.status != "resolved":
+        raise ValueError(
+            f"refusing to compress segment '{segment.issue_id}' with status "
+            f"'{segment.status}': only resolved segments are compressed — the "
+            f"active segment must be preserved byte-exact."
+        )
+    system = _load_prompt()
+    user = (
+        f"Source segment — issue_id `{segment.issue_id}`, turns "
+        f"{segment.turn_range[0]}-{segment.turn_range[1]}:\n\n{segment.text}"
+    )
+    text, input_tokens, output_tokens = complete_with_system(
+        system, user, model=model, max_tokens=1024
+    )
+    return Summary(
+        issue_id=segment.issue_id,
+        text=text,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
 
 
 def compress(transcript: Transcript, *, model: str | None = None) -> Compressed:
@@ -76,4 +95,22 @@ def compress(transcript: Transcript, *, model: str | None = None) -> Compressed:
     #
     # Return a Compressed carrying the summaries dict, the active_text, and
     # the active_issue_id.
-    raise NotImplementedError("Exercise 3: implement compression orchestration")
+    summaries: dict[str, Summary] = {}
+    active_text: str | None = None
+    active_issue_id: str | None = None
+    for segment in transcript.segments:
+        if segment.status == "resolved":
+            summaries[segment.issue_id] = summarize_segment(segment, model=model)
+        elif segment.status == "active":
+            active_text = "\n\n".join(t.render() for t in segment.turns)
+            active_issue_id = segment.issue_id
+    if active_text is None or active_issue_id is None:
+        raise RuntimeError(
+            "no active segment present in transcript — the assembled context "
+            "requires exactly one active segment at the bottom boundary"
+        )
+    return Compressed(
+        summaries=summaries,
+        active_text=active_text,
+        active_issue_id=active_issue_id,
+    )

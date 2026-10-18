@@ -30,7 +30,13 @@ from __future__ import annotations
 # The 5 fields: order_id, order_date, order_total_usd, fulfillment_status,
 # return_eligible_until — chosen because they are the *only* fields needed for
 # the agent's return/refund decision.
-KEPT_FIELDS: tuple[str, ...] = ()
+KEPT_FIELDS: tuple[str, ...] = (
+    "order_id",
+    "order_date",
+    "order_total_usd",
+    "fulfillment_status",
+    "return_eligible_until",
+)
 
 
 class PrunerMissingFieldError(KeyError):
@@ -52,4 +58,11 @@ def prune_lookup_order(raw: dict) -> dict:
     #
     # Do NOT add an `anthropic` import here — the pruner is deterministic by
     # design. The AST audit will flag any LLM-driven implementation.
-    raise NotImplementedError("Exercise 1: implement deterministic 5-field pruning")
+    missing = [field for field in KEPT_FIELDS if field not in raw]
+    if missing:
+        raise PrunerMissingFieldError(
+            f"lookup_order response is missing required kept fields: {missing}"
+        )
+    # Rebuild in KEPT_FIELDS declaration order — the contract is the exact
+    # 5-field set, in this order, and nothing else survives into context.
+    return {field: raw[field] for field in KEPT_FIELDS}

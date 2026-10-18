@@ -26,8 +26,13 @@ from retail_context.tokens import count
 # The AST audit (test_antipatterns.py) regex-matches against these exact strings,
 # so they are part of the contract — change them and the
 # audit fails. Use level-1 headings (# ...), not ##.
-RESOLVED_TITLES: dict[str, str] = {}
-ACTIVE_TITLES: dict[str, str] = {}
+RESOLVED_TITLES: dict[str, str] = {
+    "refund": "# Resolved: Refund inquiry",
+    "subscription": "# Resolved: Subscription cancellation",
+}
+ACTIVE_TITLES: dict[str, str] = {
+    "payment_update": "# Active issue: Payment-method update",
+}
 
 
 @dataclass
@@ -77,4 +82,42 @@ def build(case_facts: CaseFacts, compressed: Compressed) -> AssembledContext:
     # 5. Return an AssembledContext with all five fields populated. The
     #    `active_raw_text` field is `compressed.active_text` — the AST audit uses
     #    it to verify the assembled `active_block` body equals the raw turns.
-    raise NotImplementedError("Exercise 4: implement position-aware assembly")
+    # 1. Top boundary — case facts, exactly one trailing newline.
+    case_facts_block = case_facts.to_markdown().rstrip("\n") + "\n"
+
+    # 2. Middle — resolved blocks in declaration order (refund before
+    #    subscription); the exact sequence is regex-audited.
+    resolved_blocks: dict[str, str] = {}
+    for issue_id in ("refund", "subscription"):
+        if issue_id not in compressed.summaries:
+            raise KeyError(f"missing resolved summary for issue: {issue_id}")
+        summary_text = compressed.summaries[issue_id].text.strip()
+        resolved_blocks[issue_id] = f"{RESOLVED_TITLES[issue_id]}\n\n{summary_text}\n"
+
+    # 3. Bottom boundary — active block, body byte-exact (no strip/normalize).
+    active_title = ACTIVE_TITLES.get(
+        compressed.active_issue_id,
+        f"# Active issue: {compressed.active_issue_id}",
+    )
+    active_block = f"{active_title}\n\n{compressed.active_text}\n"
+
+    # 4. Concatenate top + blank line + refund + blank line + subscription +
+    #    blank line + active into the final markdown.
+    markdown = (
+        case_facts_block
+        + "\n"
+        + resolved_blocks["refund"]
+        + "\n"
+        + resolved_blocks["subscription"]
+        + "\n"
+        + active_block
+    )
+
+    # 5. Return the assembled context with all five fields populated.
+    return AssembledContext(
+        markdown=markdown,
+        case_facts_block=case_facts_block,
+        resolved_blocks=resolved_blocks,
+        active_block=active_block,
+        active_raw_text=compressed.active_text,
+    )
