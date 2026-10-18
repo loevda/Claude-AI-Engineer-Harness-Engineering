@@ -27,25 +27,25 @@ class HotState(BaseModel):
     #   current_shift_summary: str
     #   active_alerts: list[str]
     #   threshold_statuses: dict[str, str]
-    recent_defect_hashes: list[str] = Field(...)
-    current_shift_summary: str = ""
-    active_alerts: list[str] = Field(default_factory=list)
-    threshold_statuses: dict[str, str] = Field(default_factory=dict)
+    recent_defect_hashes: list[str] = Field(max_length=MAX_RECENT_HASHES)
+    current_shift_summary: str
+    active_alerts: list[str]
+    threshold_statuses: dict[str, str]
 
     def to_json_bytes(self) -> bytes:
         # TODO: Serialize this model to UTF-8 JSON bytes. Pydantic v2 gives you
         # `self.model_dump_json()` for the JSON string; encode it as UTF-8.
-        raise NotImplementedError
+        return self.model_dump_json().encode("utf-8")
 
     @classmethod
     def from_json_bytes(cls, payload: bytes) -> Self:
         # TODO: Parse JSON bytes back into a HotState instance.
-        raise NotImplementedError
+        return cls.model_validate_json(payload)
 
     @classmethod
     def from_path(cls, path: Path) -> Self:
         # TODO: Read the bytes at `path` and parse them into a HotState.
-        raise NotImplementedError
+        return cls.from_json_bytes(path.read_bytes())
 
     def write_atomic(self, path: Path) -> None:
         # TODO: Durably write `self.to_json_bytes()` to `path`.
@@ -60,4 +60,23 @@ class HotState(BaseModel):
         # Use os.replace, not os.rename. They behave the same on POSIX, but
         # os.rename fails on Windows when the destination already exists. The
         # whole point of an atomic write is that the destination *does* exist.
-        raise NotImplementedError
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = self.to_json_bytes()
+        if len(payload) > HOT_STATE_BYTE_BUDGET:
+            raise ValueError(
+                f"hot state payload of {len(payload)} bytes exceeds "
+                f"{HOT_STATE_BYTE_BUDGET}-byte budget"
+            )
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=".hot_state.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "wb") as tmp:
+                tmp.write(payload)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_name, path)
+        except BaseException:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+            raise

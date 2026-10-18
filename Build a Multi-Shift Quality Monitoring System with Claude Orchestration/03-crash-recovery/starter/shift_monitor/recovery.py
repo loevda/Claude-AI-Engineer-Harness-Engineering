@@ -34,4 +34,11 @@ def decide(state: ManifestState, now: datetime) -> Decision:
     #      otherwise return "fresh".
     #
     # Boundary note: at exactly 30 minutes, "resume" wins. Use `<=`, not `<`.
-    raise NotImplementedError
+    if not state.steps:
+        return "fresh"
+    if state.complete:
+        return "fresh"
+    last_step = state.steps[-1]
+    if now - last_step.ts <= timedelta(minutes=STALE_RESUME_THRESHOLD_MINUTES):
+        return "resume"
+    return "fresh"

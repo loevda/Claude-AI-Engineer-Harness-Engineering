@@ -25,7 +25,7 @@ class Invocation:
 def thin(prompt: str) -> Invocation:
     # TODO: Return an Invocation with shape="thin" and the prompt unchanged.
     # The thin shape is for one-shot calls that don't need any project state.
-    raise NotImplementedError
+    return Invocation(shape="thin", prompt=prompt)
 
 
 def rich(
@@ -40,7 +40,33 @@ def rich(
     #   - A trailing instruction asking for: Summary, Findings, Recommended
     #     actions, and an Updated hot state proposal as a JSON block.
     # Return an Invocation with shape="rich" and the rendered prompt.
-    raise NotImplementedError
+    lines: list[str] = [
+        f"You are the on-call {role} for Northridge Plant 3.",
+        "",
+        "## Current hot state",
+        f"- Recent defect hashes: {', '.join(hot_state.recent_defect_hashes)}",
+        f"- Current shift summary: {hot_state.current_shift_summary}",
+        f"- Active alerts: {hot_state.active_alerts}",
+        f"- Threshold statuses: {hot_state.threshold_statuses}",
+        "",
+        "## New defects since last shift",
+    ]
+    if not new_defects:
+        lines.append("- (none)")
+    else:
+        for d in new_defects:
+            lines.append(
+                f"- {d['id']} / {d['ts']} / {d['shift']} / {d['component']} / "
+                f"{d['severity']} / {d['description']}"
+            )
+    lines.extend(
+        [
+            "",
+            "Produce a shift report with: Summary, Findings, Recommended actions, "
+            "and an Updated hot state proposal as a JSON block.",
+        ]
+    )
+    return Invocation(shape="rich", prompt="\n".join(lines))
 
 
 def resumed(
@@ -58,4 +84,33 @@ def resumed(
     #     (id / ts / component / severity / description), or "- (none)" if empty.
     # Close with the latest_message under "## Latest instruction".
     # Return an Invocation with shape="resumed".
-    raise NotImplementedError
+    lines: list[str] = [
+        f"Resuming session {session_id}.",
+        "",
+        "## Prior partial findings",
+    ]
+    if not prior_steps:
+        lines.append("- (none)")
+    else:
+        for step in prior_steps:
+            payload_repr = str(step.get("payload", {}))[:120]
+            lines.append(f"- {step.get('name', '?')}: {payload_repr}")
+    lines.extend(
+        [
+            "",
+            "## Prior summary",
+            summary,
+            "",
+            "## New defects since last partial step",
+        ]
+    )
+    if not new_defects:
+        lines.append("- (none)")
+    else:
+        for d in new_defects:
+            lines.append(
+                f"- {d['id']} / {d['ts']} / {d['component']} / "
+                f"{d['severity']} / {d['description']}"
+            )
+    lines.extend(["", "## Latest instruction", latest_message])
+    return Invocation(shape="resumed", prompt="\n".join(lines))
