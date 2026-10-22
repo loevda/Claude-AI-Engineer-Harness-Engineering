@@ -11,12 +11,14 @@ on:
     branches: [main]
     paths:
       - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
+      - "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/**"
       - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
       - "Configure Claude Code for a Multi-Surface Monorepo Team/**"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "Build a Claims Intake Agent with a stop_reason-Driven Loop/**"
+      - "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/**"
       - "Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**"
       - "Configure Claude Code for a Multi-Surface Monorepo Team/**"
       - ".github/workflows/ci.yml"
@@ -50,6 +52,25 @@ jobs:
               tests/test_tools.py::test_handler_exception_is_caught_as_transient_error
           - name: claims-03-dynamic-decomposition
             dir: "Build a Claims Intake Agent with a stop_reason-Driven Loop/exercises/03-dynamic-decomposition/starter"
+            pytest_args: "tests/"
+          # --- Project 3: Long-Conversation Context Strategy (cumulative) ---
+          - name: retail-01-prune-tool-output
+            dir: "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/01-prune-tool-output/starter"
+            pytest_args: "tests/test_pruner.py"
+          - name: retail-02-case-facts-block
+            dir: "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/02-case-facts-block/starter"
+            pytest_args: >-
+              tests/test_pruner.py
+              tests/test_case_facts.py
+          - name: retail-03-compress-with-budget
+            dir: "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/03-compress-with-budget/starter"
+            pytest_args: >-
+              tests/test_pruner.py
+              tests/test_case_facts.py
+              tests/test_compressor.py
+              tests/test_tokens.py
+          - name: retail-04-assemble-and-locate
+            dir: "Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/04-assemble-and-locate/starter"
             pytest_args: "tests/"
           # --- Project 2: Multi-Shift Quality Monitoring (self-contained per step) ---
           - name: multishift-01-tiered-state
@@ -103,6 +124,7 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             Build a Claims Intake Agent with a stop_reason-Driven Loop/**/pyproject.toml
+            Engineer a Long-Conversation Context Strategy for a Retail Support Copilot/**/pyproject.toml
             Build a Multi-Shift Quality Monitoring System with Claude Orchestration/**/pyproject.toml
             Configure Claude Code for a Multi-Surface Monorepo Team/**/pyproject.toml
 
