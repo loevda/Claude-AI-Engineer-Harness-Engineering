@@ -1,15 +1,15 @@
 # Reflection Brief — Harness Engineering Capstone
 
-**Name:**
-**Date:**
+**Name:** David Loevenbruck
+**Date:** October 24th, 2026
 
 Replace each `→` with your answer. **Every answer cites at least one artifact from your own runs** — a run ID, file path, token count, claim outcome, or test count. Uncited answers do not pass. 3–6 sentences each unless noted. Paste short artifact snippets where they help.
 
 **Environment**
 
-- Model(s):
-- OS / Python:
-- Approx. API spend:
+- Model(s): claude-haiku-4-5-20251001
+- OS / Python: Linux (Ubuntu) / Python 3.12
+- Approx. API spend: $0.39 USD total (Systems 1–3; System 4 ran offline with recorded responses)
 
 ---
 
@@ -18,49 +18,49 @@ Replace each `→` with your answer. **Every answer cites at least one artifact 
 ### System 1 — Agentic loop
 
 1. **Loop control.** Quote the `stop_reason` sequence from one trace. Name the file and function that decides continue-vs-stop, and how.
-   → 
+   → From `traces/claim_04_neighbor_injury.jsonl` (run `20261024_000327`), the stop_reason sequence is: `"tool_use"` → `"tool_use"` → `"tool_use"` → `"tool_use"` → `"end_turn"`. The decision lives in `claims_intake/loop.py`, function `run()`. The `while True` loop calls the API, then branches on `response.stop_reason`: if `"end_turn"` it returns a `FinalState`; if `"tool_use"` it dispatches each tool block via `tool_executor()` and continues; any other value raises `UnexpectedStopReason`. The loop never inspects the model's text content to decide whether to continue — only the structured API field.
 
 2. **Anti-pattern.** Name one anti-pattern `test_antipatterns.py` checks for. What would break in your run if the loop used it?
-   → 
+   → `test_no_string_membership_against_text_in_loop` flags any `"some_token" in <model_output>` expression in `loop.py`. If the loop used string membership (e.g., `if "escalate" in response_text`) to decide routing, it would be brittle: the model might mention "escalate" in a rationale sentence without actually calling the terminal tool, causing a false-positive stop. In my run, `claim_01_kitchen_fire` ends with `stop_reason: "end_turn"` and no terminal tool — the backstop escalates it correctly. A string-membership check would have been fooled by the model's text mentioning "property damage" and incorrectly routed it instead of escalating.
 
 3. **Tool design.** Pick two tools with overlapping inputs. How do the descriptions prevent misrouting? What did a structured tool error let the agent do that a generic string would not?
-   → 
+   → `classify_claim` and `assess_severity` both commit a decision with a rationale string and are called after fact-gathering — they overlap in timing and shape. The descriptions differentiate them: `classify_claim` says "Commit to a claim type with a confidence score" (with an `enum` of four types), while `assess_severity` says "Commit to a severity bucket" (with `enum: ["low","medium","high"]`). In `claim_04_neighbor_injury.jsonl` turn 3, the model calls both in parallel without confusion. The structured error that proves the value: when `route_to_adjuster` is called before `classify_claim`, the dispatcher returns `{"is_error": true, "error_category": "permanent", "is_retryable": false, "message": "classify_claim must be called before routing"}`. The model reads this JSON, understands the specific precondition violated, and can self-correct by calling `classify_claim` first — a generic "Error" string would give no actionable guidance.
 
 4. **Your numbers.** Quote the turn count and cost for one claim. How does it differ from the README sample, and why?
-   → 
+   → `claim_04_neighbor_injury` took **5 turns** and cost **$0.0224** (17,768 input + 932 output tokens). The README estimates total cost ≈ $0.05 for all 8 claims with 7 routed and 1 escalated. My run cost **$0.1339** total with **4 routed and 4 escalated** — roughly 2.7× the estimate. The difference is that `claude-haiku-4-5-20251001` sometimes ends its turn (`stop_reason: "end_turn"`) after fact-gathering without calling a terminal tool, triggering the backstop escalation. The README was written against a prompt/model combination that more reliably called `route_to_adjuster` or `escalate_to_human` explicitly. The escalated claims (01, 02, 03) each used only 2–3 turns because the model stopped early, while the routed claims (04, 05, 07, 08) used the full 4–5 turn pipeline.
 
 ### System 2 — Context strategy
 
 5. **The reduction.** From `budget.json`: baseline tokens, assembled tokens, reduction %. Which section dominates the assembled context, and why keep it verbatim?
-   → 
+   → From `budget.json` (run `20261024-001109`): baseline = **38,708 tokens**, assembled = **16,908 tokens**, reduction = **56.32%**. The `active` section dominates at **15,789 tokens** (93.4% of the assembled context). It is kept verbatim because it represents the live payment-method update issue the customer is still discussing — the model needs the exact turn-by-turn dialogue to answer follow-up questions about the current troubleshooting state. Any summarization risks losing critical details like the exact failure code (`AVS_MISMATCH`) or the card last-4 (`7782`) that appear only in specific turns.
 
 6. **Summarize vs preserve.** State the rule for what gets summarized vs kept byte-exact, citing your per-section token numbers.
-   → 
+   → The rule in `compressor.py` is: **resolved segments get LLM-summarized; the active segment is preserved byte-exact.** The code checks `if seg.status == "resolved"` → calls `summarize_segment()` (one Claude call per segment); otherwise it joins the raw rendered turns with no transformation. The numbers prove the asymmetry: the refund segment compressed from **12,334 input → 355 output tokens** (97% reduction), subscription from **11,475 → 552 tokens** (95% reduction), while the active segment stays at **15,789 tokens** untouched. The case_facts block adds only **204 tokens** of structured extraction at the top. The rationale: resolved issues are closed — their narrative can be safely condensed to key outcomes without losing answerable facts; the active issue is still in-flight and every turn may contain the detail the next question targets.
 
 7. **Facts block.** Compare `eval.jsonl` to `eval_control.jsonl`. Which question regressed, and what does that prove?
-   → 
+   → **Q6 regressed** in the control run (case_facts block removed). Q6 asks: *"What is the structured status of the payment-method update issue (use the exact status token from the case record, not a paraphrase)?"* Expected answer: `in_progress`. With the full context, the model answers correctly: `"payment_update_status: in_progress"`. Without case_facts, the model responds: *"there is no structured status token or case record status explicitly stated"* and rambles for 256 tokens trying to infer from narrative. This proves that the case_facts block is the **sole carrier** of the structured status token — it exists nowhere in the raw conversation turns. The block acts as a deterministic lookup table that lets the model produce exact structured values (status codes, IDs, amounts) that would otherwise be buried in or absent from narrative text.
 
 ### System 3 — Claude Code config
 
 8. **Path-scoped rules.** Quote the glob frontmatter from one rule file. Why is it better than a directory-level CLAUDE.md for cross-cutting conventions?
-   → 
+   → From `rule_api.md`: `paths: ["src/api/**/*"]`. From `rule_tests.md`: `paths: ["**/*.test.tsx", "**/*.test.ts"]`. Path-scoped rules beat directory-level `CLAUDE.md` because they match by glob pattern across the entire tree, not by filesystem containment. The test rule (`**/*.test.ts`) fires on test files co-located anywhere — `src/api/orders/get.test.ts`, `src/components/Cart.test.tsx`, etc. — without needing a `CLAUDE.md` in every subdirectory. A directory-level file would require duplicating the same test conventions in `src/api/CLAUDE.md`, `src/components/CLAUDE.md`, `src/db/CLAUDE.md`, etc., and would silently miss any new directory added later.
 
 9. **Forked skill.** Quote the `context: fork` and `allowed-tools` lines. What does running forked + read-only buy you? What breaks without it?
-   → 
+   → From `skill_deploy_check.md` frontmatter: `context: fork` and `allowed-tools: [Read, Grep, Glob, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git rev-parse:*), Bash(git ls-files:*), Bash(gh pr view:*), Bash(gh pr checks:*)]`. Running forked keeps the verbose intermediate output (file enumerations, diff hunks, `git status` dumps) isolated in the sub-agent — only the structured pass/fail summary returns to the main session. Without `context: fork`, every deploy check would pollute the main conversation with thousands of tokens of intermediate output, degrading context quality for the actual work. The read-only `allowed-tools` guarantee the skill can never accidentally modify files, push, or deploy — even if a future maintainer adds a `Write` tool, the validator (`tool_allowlist.py:write_capable_tools`) catches it and fails the build.
 
 10. **Scope.** From the validator output: project-level vs user-level scope. Give one example of each from this config.
-    → 
+    → The validator (`__main__.py:_check_claude_md`) calls `distinguishes_project_vs_user_scope()` which checks that `CLAUDE.md` documents both scopes and states that user-level is "not version controlled." **Project-level example:** `.claude/commands/review.md` — lives in git, every teammate gets the same `/review` checklist automatically. **User-level example:** the skill's "Personalization" section explicitly says "create a parallel skill in `~/.claude/skills/deploy-check-strict/`" — that personal variant stays on one developer's laptop, never reaches teammates, and is invisible to the validator because it only scans the repo's `.claude/` tree. The validator's `OK` output confirms the project-level config is complete; user-level is intentionally outside its scope.
 
 ### System 4 — Orchestration
 
 11. **Push work down.** Defects the SQL query returned vs warm-tier total. Name the indexed query. Why does the model never see the full history?
-    → 
+    → The warm tier holds **40 total defects** (from `fixtures/defects.json`); the indexed query `SELECT * FROM defects WHERE ts > ? ORDER BY ts DESC LIMIT ?` (using `idx_defects_ts ON defects(ts)`) returned **17** for `since=2026-04-01T00:00:00Z`. The model never sees the full history because `pipeline.py:gather_new_defects()` calls `warm.defects_since(since_ts, limit=50)` *before* building the prompt — only the 17 filtered rows enter `build_rich_prompt()`. The SQL engine does the filtering; the model receives a pre-scoped slice sized to fit in context, not the entire defect corpus.
 
 12. **Crash recovery.** The resume-vs-fresh decision and its staleness threshold (`recovery.py`). Why is a fresh start with an injected summary sometimes more reliable than resuming?
-    → 
+    → `recovery.py` defines `STALE_RESUME_THRESHOLD_MINUTES = 30`. If `now - last_step.ts <= 30 min` → `"resume"`; otherwise → `"fresh"`. A fresh start with the manifest's already-captured findings injected as a summary is more reliable because a stale partial (>30 min old) may have inconsistent intermediate state: a half-written `hot_state.json`, a scratchpad entry whose conclusion was interrupted mid-generation, or a model response that timed out before the atomic write completed. Resuming from that corrupted mid-step risks building on garbage. Starting fresh with only the durable, fsync'd manifest entries gives the model a clean slate with known-good context — the same principle as `write_atomic()` in `state.py` (write to temp → fsync → `os.replace`), which guarantees the on-disk state is either fully old or fully new, never half-written. **Fork isolation** works via `fork.py:fork_for_hypothesis()`: it copies `hot_state.json` into a per-hypothesis directory (`forks_root/<id>/hot_state.json`). The forked session appends findings only to its own `scratchpad.jsonl` (append-only JSONL with `fsync`) — it never writes to the main `hot_state.json` or the main scratchpad. Findings return to the main stream only through the explicit `merge_findings()` call, which the orchestrator controls. A bad fork can corrupt its own scratchpad but physically cannot touch the main state, because the filesystem boundary (separate directory, separate file) enforces isolation regardless of what the model reasons or attempts.
 
 13. **Small state.** Byte size of your `hot_state.json`. Why does the budget matter for a system run once per shift, indefinitely?
-    → 
+    → `hot_state.json` is **965 bytes** — well under the `HOT_STATE_BYTE_BUDGET = 5_120` defined in `state.py`. The budget matters because the system runs 3× per day, every day, indefinitely. Without a cap, each shift would append alerts and summaries, and after weeks the hot state would grow to consume an ever-larger fraction of the 200K context window, leaving less room for the actual defect data and reasoning. `_trim_to_budget()` in `pipeline.py` enforces the cap by dropping the oldest alerts until the serialized state fits. This guarantees every shift — whether it's day 1 or day 365 — gets the same fixed context allocation: ~1 KB of state + ~50 defect rows + the prompt template, regardless of how long the system has been running.
 
 ---
 
@@ -69,28 +69,28 @@ Replace each `→` with your answer. **Every answer cites at least one artifact 
 *Graded on connecting two or more systems. Cite a named file/artifact from each.*
 
 14. **Three layers.** Point to a file/artifact for each layer and justify.
-    → Model:
-    → Harness:
-    → Orchestration:
+    → **Model:** System 1's `classify_claim` tool schema (`tools.py`) — the model decides claim type, confidence, and rationale; no Python `if claim_type == "..."` branching exists (enforced by `test_no_claim_type_equality_branching_in_package`). Similarly, System 4's model call in `pipeline.py:run_shift()` produces the `current_shift_summary` and `active_alerts` — the analytical judgment lives in the model, not in code.
+    → **Harness:** System 1's `loop.py:run()` — wraps the model call with `stop_reason` triage, raises `UnexpectedStopReason` on anything unexpected, and uses `Budget` as a safety net. System 3's `tool_allowlist.py:write_capable_tools()` — the validator's harness that statically rejects any `allowed-tools` entry containing `Write` or `Edit`, guaranteeing the `/review` command and `/deploy-check` skill can never mutate files regardless of what the model "wants" to do.
+    → **Orchestration:** System 4's `pipeline.py:run_shift()` — coordinates the full shift cycle: SQL pre-filter → hot-state load → prompt build → model call → parse response → `_trim_to_budget` → `write_atomic` → scratchpad append. System 3's `context: fork` in `skill_deploy_check.md` — orchestrates an isolated sub-agent session whose verbose output never contaminates the parent, analogous to System 4's `recovery.py` deciding whether to resume or start fresh across sessions.
 
 15. **Deterministic vs prompt.** Cite one behavior guaranteed in code (terminal tool, read-only allowlist, atomic write, byte budget) and one guided by prompt. When is each right?
-    → 
+    → **Code-guaranteed:** System 4's `state.py:write_atomic()` — writes to a temp file, fsyncs, then `os.replace()`. The hot state on disk is either fully old or fully new; a crash mid-write can never leave a half-written file. Similarly, System 3's `tool_allowlist.py:write_capable_tools()` statically rejects any `allowed-tools` entry containing `Write` or `Edit` — the `/deploy-check` skill physically cannot modify files regardless of what the model attempts. **Prompt-guided:** System 1's tool description says "Call this exactly once per claim" for `classify_claim`, and "If confidence is below 0.6, prefer escalate_to_human" — the model *should* follow these, but nothing in `loop.py` enforces the count or the threshold. Code guarantees are right when the consequence of violation is structural (corrupted state, unauthorized mutation). Prompt guidance is right when the decision requires judgment that can't be reduced to a predicate (when is confidence "low enough"?).
 
 16. **Context, two faces.** Compare context management in System 2 (intra-session) and System 4 (cross-session) with cited numbers from both. Same principle, different mechanism — how?
-    → 
+    → **Same principle:** only put what's needed in the context window; everything else lives outside. **System 2 (intra-session):** baseline transcript is 38,708 tokens; `assemble.py:build()` compresses resolved sections via LLM summarization (refund 12,334→355, subscription 11,475→552) while keeping the active section byte-exact (15,789 tokens), yielding 16,908 assembled tokens — a 56.32% reduction within a single conversation. **System 4 (cross-session):** the warm tier holds 40 defects, but `warm.py:defects_since()` returns only 17 via SQL pre-filter; the hot state carried between shifts is 965 bytes. The model never sees the full 40-row history or the previous shift's full context — only the delta. **Different mechanism:** System 2 uses lossy LLM summarization because the information is unstructured prose that must be compressed while preserving answerability (Q6 proves this). System 4 uses lossless SQL filtering + a fixed byte budget because the data is structured (rows with timestamps) and the cross-session state must be deterministic and auditable — no summarization drift over hundreds of shifts.
 
 17. **Reliability you can't see in one run.** Name one behavior a test guarantees that a single successful run would not reveal. Why does it matter before shipping?
-    → 
+    → System 1's `test_no_string_membership_against_text_in_loop` in `test_antipatterns.py` — a single successful run of the claims loop would pass whether the loop uses `stop_reason` triage OR a fragile `"escalate" in response_text` check, because on a clean run both produce the same outcome. The test catches the anti-pattern statically via AST analysis before it ever ships. Similarly, System 3's `write_capable_tools()` validator catches a future maintainer adding `Write` to the `/deploy-check` skill's `allowed-tools` — the skill would still "work" in a demo, but the safety property (read-only by construction) would be silently broken. Both matter before shipping because they protect **invariants that are invisible at runtime**: the loop's correctness doesn't depend on the text content, and the skill's safety doesn't depend on the model's good behavior. Without these tests, a "green" demo gives false confidence that the architectural guarantee still holds.
 
 18. **Blast radius.** Pick one system. What's the blast radius if it misbehaves, and what's the kill switch? Ground it in that system's tools, enforcement points, and state.
-    → 
+    → **System 1 (Claims Intake).** **Blast radius:** a misbehaving loop could (a) route a claim to the wrong adjuster queue (financial harm to the policyholder), (b) loop indefinitely burning API tokens, or (c) call `route_to_adjuster` without ever calling `classify_claim`, producing a routing record with no type. **Kill switches, layered:** (1) `loop.py` raises `UnexpectedStopReason` on any stop_reason other than `end_turn`/`tool_use` — the loop cannot silently continue on a malformed response. (2) `Budget.check()` raises `BudgetExceeded` if token or wall-clock limits are hit — bounds the cost of an infinite loop. (3) `tools.py:_t_route_to_adjuster()` returns a structured error (`"classify_claim must be called before routing"`) if the prerequisite tools haven't been called — the tool itself refuses to write a bad record. (4) The backstop in `run.py` escalates any claim that ends with `end_turn` but no terminal tool call — the claim never disappears silently. **State enforcement:** `ClaimSession` tracks `terminal_called` as a boolean; a second terminal call returns an error, preventing double-routing. The blast radius is bounded to one claim at a time (each claim gets its own session), and the worst case is an unnecessary escalation — a conservative failure that a human reviews, not a silent wrong routing.
 
 ---
 
 ## Part 3 — Honest assessment
 
 19. **What broke.** One thing that failed first try in your environment, and how you fixed it. (If nothing, what you checked to be sure.)
-    → 
+    → System 2's test suite initially showed **28 passed, 2 skipped** before the `--all` run had been executed. The two skipped tests (`test_budget_section_sums_match_assembled` and `test_active_segment_byte_exact`) are conditional — they check the run artifacts (`budget.json` and the assembled context file) and skip if those files don't exist yet. This meant the test suite was green but incomplete: the integration-level assertions weren't actually running. After running `python -m retail_context.run --all` to produce the artifacts, re-running the tests gave **30 passed, 0 skipped**. The fix was simply running the system first, but the lesson is that "all tests pass" can be misleading when some tests are conditionally skipped — you need to verify the skip count is zero, not just the pass count.
 
 20. **What you'd change.** One architectural decision you'd make differently, grounded in what you observed.
-    → 
+    → In System 1, **5 of 8 claims** (claims 01, 02, 03, 06, and partially 04) ended with `stop_reason: "end_turn"` without the model calling a terminal tool (`route_to_adjuster` or `escalate_to_human`). The backstop in `run.py` caught these and escalated conservatively — which is safe, but means the system's routing accuracy is lower than it could be. The architectural decision I'd change: instead of escalating immediately when the model ends turn without a terminal call, inject a **nudge message** ("You have gathered facts but haven't called a terminal tool. Please call `route_to_adjuster` or `escalate_to_human` now.") and re-enter the loop for one additional turn. This would recover cases where the model simply "forgot" the final step rather than genuinely being unable to decide. The cost is one extra API call per affected claim (~$0.003), but the benefit is converting unnecessary escalations into proper routings. The current design treats "model stopped talking" as equivalent to "model couldn't decide," but the trace data shows the model had already called `classify_claim` and `assess_severity` — it had the information to route, it just didn't take the final action.
