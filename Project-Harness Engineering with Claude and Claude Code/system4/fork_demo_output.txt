@@ -1,0 +1,8 @@
+main BEFORE : hot_state=110086f286fa379d scratchpad=b64946e08cd31562
+forked      : H1-lot-contamination, H2-night-shift-process
+fork copies identical to main at fork time: True
+main AFTER forks written : hot_state=110086f286fa379d scratchpad=b64946e08cd31562
+main untouched by forks  : True
+H1 scratchpad entries: 1; H2 scratchpad entries: 1
+no cross-contamination   : True
+main AFTER explicit merge_findings: 7 entries (hot_state still 110086f286fa379d, unchanged: True)
